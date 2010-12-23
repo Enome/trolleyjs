@@ -1,0 +1,14 @@
+Battleplan
+==========
+
+Trolleyjs: a knockout.js shopping cart application. Using a cookie for storing the cart.
+
+
+Api Ideas
+=========
+
+product.all()
+product.get('price', 150)
+product.name
+product.price
+

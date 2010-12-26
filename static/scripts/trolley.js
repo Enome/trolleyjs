@@ -1,5 +1,9 @@
 var Trolley = function(){
 
+	var configuration = {
+		cookieName : 'trolley'
+	};
+
 	var utils = {
 		//http://www.quirksmode.org/js/cookies.html
 		cookie : {
@@ -57,6 +61,8 @@ var Trolley = function(){
 			if(v == 0){
 				viewModel.removeProduct($this, true);
 			};
+
+			viewModel.data.cookie.put(viewModel.products());
 		});
 
 		return $this;
@@ -83,6 +89,10 @@ var Trolley = function(){
 
 				return total.toFixed(2);
 			};
+
+			k.subscribe(function(v){
+				viewModel.data.cookie.put(k);
+			});
 
 			return k;
 		})(),
@@ -121,6 +131,46 @@ var Trolley = function(){
 			viewModel.products.remove(function(){
 				return true
 			});
+		},
+
+		data : {
+			cookie : {
+
+				get : function(){
+					var cookie = utils.cookie.read(configuration.cookieName);
+
+					if(cookie){
+						var obj = null;
+						try{
+							var obj = JSON.parse(cookie);
+						}
+						catch(err){};
+
+						if(obj){
+							var products = [];
+							for (var i = 0; i < obj.length; i++) {
+								products.push(
+									Product(obj[i].name, 
+									obj[i].price)
+								);
+							};
+
+							return products;
+						};
+					};
+
+					return [];
+				},
+
+				put : function(data){
+					utils.cookie.create(
+						configuration.cookieName, 
+						ko.toJSON(data), 
+						1
+					);
+				}	
+
+			}
 		}
 	};
 

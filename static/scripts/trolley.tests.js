@@ -204,14 +204,94 @@
 		equals(viewModel.products.quantity(), 7);
 	});
 
-	//Cookie writing also known as the amazing data layer
-	module('Cookie writing', setDown);
+	//Cookie writing also known as the amazing datalayer
+	module('Writing data to Cookie', setDown);
 
-	test('Should write when quantity changes', function(){
+	test('Cookie get should return [] if cookie is empty',function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
 
+		trolley.utils.cookie.read = function(){
+			return ''
+		};
+
+		var result = viewModel.data.cookie.get();
+
+		ok(result instanceof Array);
+		ok(!result.length);
+	});	
+
+	test('Cookie get should return [] when json data is invalid', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
+
+		trolley.utils.cookie.read = function(){
+			return '{ foobar }'
+		};
+
+		var result = viewModel.data.cookie.get();
+
+		ok(result instanceof Array);
+		ok(!result.length);
+	
 	});
 
-	test('Should write when product gets added', function(){
+	test('Cookie get should return array of products', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
 
+		trolley.utils.cookie.read = function(){
+			return '[ { "name" : "foo", "price" : "15" }, ' +
+			    	 '{ "name" : "bar", "price" : "5" } ]'
+		};
+
+		var result = viewModel.data.cookie.get();
+
+		equals(result[0].name, 'foo');
+		equals(result[0].price, 15);
+
+		equals(result[1].name, 'bar');
+		equals(result[1].price, 5);
 	});
+
+	test('Cookie put should write json to cookie', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
+		
+		var data = { name : 'foo', price : 'bar' };
+		viewModel.data.cookie.put(data);
+
+		var cookie = trolley.utils.cookie.read('trolley');
+
+		equals(cookie, '{"name":"foo","price":"bar"}');
+	});
+
+	test('Should write to cookie when product gets added', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;	
+
+		var called = false;
+		viewModel.data.cookie.put = function(){
+			called = true;
+		};
+		
+		viewModel.products.push( { name : 'foo', price : 1 } );
+		ok(called);
+	});
+	
+	test('Should write when product quantity changes', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;	
+
+		var called = false;
+		viewModel.data.cookie.put = function(){
+			called = true;
+		};
+
+		var p = trolley.Product('foo', 1);
+		p.quantity(5);
+		
+		ok(called);
+	});
+
 })();

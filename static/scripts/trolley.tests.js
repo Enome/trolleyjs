@@ -58,6 +58,12 @@
 		});
 	});
 
+	test('Throw if quantity is not NaN', function(){
+		raises( function(){
+			var product = Trolley().Product('foobar', 1, 'foo');
+		});
+	});
+
 	test('Default quantity is 1', function(){
 		var product = Trolley().Product('foobar', 1);
 		equals( product.quantity(), 1);
@@ -71,6 +77,13 @@
 		p.quantity(5);
 		
 		equals(p.totalPrice(), 0.55);
+	});
+
+	test('Total price should fix to two', function(){
+		var trolley = Trolley();
+		var p = trolley.Product('foo', 0.11111);
+
+		equals(p.totalPrice(), 0.11);
 	});
 
 	//ViewModel
@@ -91,7 +104,7 @@
 		equals(p2, p2_);
 	});
 
-	test('addProduct adds a product to viewModel.products', function(){
+	test('Can use Product as argument to addProduct', function(){
 		var trolley = Trolley();
 		var viewModel = trolley.viewModel;
 		var product = trolley.Product('foobar', 1);
@@ -99,16 +112,33 @@
 		equals(viewModel.products().length, 0);
 
 		viewModel.addProduct(product);
+
 		equals(viewModel.products().length, 1);
 		equals(viewModel.products()[0], product);
+		equals(viewModel.products()[0].name, 'foobar');
+		equals(viewModel.products()[0].price, 1);
 	});
+
+	test('Can use name and price as arguments to addProduct', function(){
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
+
+		equals(viewModel.products().length, 0);
+
+		viewModel.addProduct('foobar', 1);
+
+		equals(viewModel.products().length, 1);
+		equals(viewModel.products()[0].name, 'foobar');
+		equals(viewModel.products()[0].price, 1);
+	});	
 
 	test('Adding the same products updates the quanity not length', function(){
 		var trolley = Trolley();
 		var viewModel = trolley.viewModel;
-		var product = trolley.Product('bar', 1);
+		var product = trolley.Product('bar', 1, '1');
 
 		viewModel.addProduct(product);
+
 		equals(viewModel.products().length, 1);
 		equals(viewModel.products()[0].quantity(), 1);
 
@@ -152,6 +182,7 @@
 
 		equals(viewModel.products()[0].quantity(), 1);
 		viewModel.removeProduct(product);
+
 		equals(viewModel.products()[0], null);
 	});
 
@@ -215,7 +246,7 @@
 			return ''
 		};
 
-		var result = viewModel.data.cookie.get();
+		var result = trolley.data.cookie.get();
 
 		ok(result instanceof Array);
 		ok(!result.length);
@@ -229,7 +260,7 @@
 			return '{ foobar }'
 		};
 
-		var result = viewModel.data.cookie.get();
+		var result = trolley.data.cookie.get();
 
 		ok(result instanceof Array);
 		ok(!result.length);
@@ -241,17 +272,19 @@
 		var viewModel = trolley.viewModel;
 
 		trolley.utils.cookie.read = function(){
-			return '[ { "name" : "foo", "price" : "15" }, ' +
-			    	 '{ "name" : "bar", "price" : "5" } ]'
+			return '[ { "name" : "foo", "price" : "15", "quantity":"2" }, ' +
+			    	 '{ "name" : "bar", "price" : "5", "quantity":"5" } ]'
 		};
 
-		var result = viewModel.data.cookie.get();
+		var result = trolley.data.cookie.get();
 
 		equals(result[0].name, 'foo');
 		equals(result[0].price, 15);
+		equals(result[0].quantity(), 2);
 
 		equals(result[1].name, 'bar');
 		equals(result[1].price, 5);
+		equals(result[1].quantity(), 5);
 	});
 
 	test('Cookie put should write json to cookie', function(){
@@ -259,7 +292,7 @@
 		var viewModel = trolley.viewModel;
 		
 		var data = { name : 'foo', price : 'bar' };
-		viewModel.data.cookie.put(data);
+		trolley.data.cookie.put(data);
 
 		var cookie = trolley.utils.cookie.read('trolley');
 
@@ -271,12 +304,15 @@
 		var viewModel = trolley.viewModel;	
 
 		var called = false;
-		viewModel.data.cookie.put = function(){
+		var put = trolley.data.cookie.put;
+		trolley.data.cookie.put = function(data){
 			called = true;
+			put(data);
 		};
 		
 		viewModel.products.push( { name : 'foo', price : 1 } );
 		ok(called);
+		equals(trolley.utils.cookie.read('trolley'), '[{"name":"foo","price":1}]');
 	});
 	
 	test('Should write when product quantity changes', function(){
@@ -284,14 +320,18 @@
 		var viewModel = trolley.viewModel;	
 
 		var called = false;
-		viewModel.data.cookie.put = function(){
+		var put = trolley.data.cookie.put;
+		trolley.data.cookie.put = function(data){
 			called = true;
+			put(data);
 		};
-
-		var p = trolley.Product('foo', 1);
-		p.quantity(5);
 		
+		var p = trolley.Product('foo', 1);
+		trolley.viewModel.addProduct(p);
+		p.quantity(5);
+
 		ok(called);
+		equals(trolley.utils.cookie.read('trolley'), '[{"name":"foo","price":1,"quantity":5}]');
 	});
 
 })();

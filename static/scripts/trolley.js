@@ -1,7 +1,8 @@
 var Trolley = function(){
 
 	var configuration = {
-		cookieName : 'trolley'
+		cookieName : 'trolley',
+		days : 1
 	};
 
 	var utils = {
@@ -40,7 +41,12 @@ var Trolley = function(){
 		}
 	};
 
-	var Product = function(name, price){
+	var Product = function(name, price, quantity){
+
+		if(!quantity){
+			quantity = 1;
+		};
+
 		if( name === undefined || name === '' ){
 			throw new Error('Name is empty');
 		};
@@ -49,12 +55,16 @@ var Trolley = function(){
 			throw new Error('Price is not a valid number');
 		};
 
+		if( isNaN( parseInt(quantity) ) ){
+			throw new Error('Quantity is not a valid number');
+		};
+
 		var $this = {};
 		$this.name = name;
 		$this.price = parseFloat(price);
-		$this.quantity = ko.observable(1);
+		$this.quantity = ko.observable(quantity);
 		$this.totalPrice = function(){
-			return $this.price * $this.quantity();
+			return ($this.price * $this.quantity()).toFixed(2);
 		};	
 
 		$this.quantity.subscribe(function(v){
@@ -62,15 +72,60 @@ var Trolley = function(){
 				viewModel.removeProduct($this, true);
 			};
 
-			viewModel.data.cookie.put(viewModel.products());
+			data.cookie.put(viewModel.products());
 		});
+		
+		$this.type = function(){
+			return 'Product'
+		};
 
 		return $this;
+	};
+
+	var data = {
+		cookie : {
+
+			get : function(){
+				var cookie = utils.cookie.read(configuration.cookieName);
+
+				if(cookie){
+					var obj = null;
+					try{
+						var obj = JSON.parse(cookie);
+					}
+					catch(err){};
+
+					if(obj){
+						var products = [];
+						for (var i = 0; i < obj.length; i++) {
+							products.push(
+								Product(obj[i].name, 
+								obj[i].price,
+								obj[i].quantity)
+							);
+						};
+
+						return products;
+					};
+				};
+
+				return [];
+			},
+
+			put : function(data){
+				utils.cookie.create(
+					configuration.cookieName, 
+					ko.toJSON(data), 
+					configuration.days	
+				);
+			}	
+
+		}
 	};
 	
 	var viewModel = {
 		products : (function(){
-			var k = ko.observableArray([]);
+			var k = ko.observableArray(data.cookie.get());
 
 			k.quantity = function(){
 				var total = 0;
@@ -91,7 +146,7 @@ var Trolley = function(){
 			};
 
 			k.subscribe(function(v){
-				viewModel.data.cookie.put(k);
+				data.cookie.put(k);
 			});
 
 			return k;
@@ -108,10 +163,21 @@ var Trolley = function(){
 			return null;
 		},
 
-		addProduct : function(product){
+		addProduct : function(){
+			var product;
+
+			if(arguments[0].type && arguments[0].type() == 'Product'){
+				product = arguments[0];
+			}
+			else
+			{
+				product = Product(arguments[0], arguments[1]);	
+			};
+
 			var p = viewModel.getProduct(product.name);
+
 			if(p){
-				p.quantity(p.quantity() + 1);
+				p.quantity(parseFloat(p.quantity()) + 1);
 			}
 			else{
 				viewModel.products.push(product);	
@@ -133,50 +199,12 @@ var Trolley = function(){
 			});
 		},
 
-		data : {
-			cookie : {
-
-				get : function(){
-					var cookie = utils.cookie.read(configuration.cookieName);
-
-					if(cookie){
-						var obj = null;
-						try{
-							var obj = JSON.parse(cookie);
-						}
-						catch(err){};
-
-						if(obj){
-							var products = [];
-							for (var i = 0; i < obj.length; i++) {
-								products.push(
-									Product(obj[i].name, 
-									obj[i].price)
-								);
-							};
-
-							return products;
-						};
-					};
-
-					return [];
-				},
-
-				put : function(data){
-					utils.cookie.create(
-						configuration.cookieName, 
-						ko.toJSON(data), 
-						1
-					);
-				}	
-
-			}
-		}
 	};
 
 	return{
 		utils : utils,
 		Product : Product,
+		data: data,
 		viewModel : viewModel
 	};
 

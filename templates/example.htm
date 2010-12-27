@@ -1,0 +1,133 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+	<title>Simple Example</title>
+	<script src='//ajax.googleapis.com/ajax/libs/jquery/1.4.4/jquery.min.js' type='text/javascript' charset='utf-8'></script>
+	<script type='text/javascript' src='/static/scripts/jquery.tmpl.min.js'></script>
+	<script type='text/javascript' src='/static/scripts/knockout-1.1.1.debug.js'></script>
+	<script src='/static/scripts/trolley.js' type='text/javascript'></script>
+	<script type='text/javascript'>
+		//shortcuts / imports
+		var trolley = Trolley();
+		var viewModel = trolley.viewModel;
+		var products = viewModel.products;
+		var addProduct = viewModel.addProduct;
+		var clearAll = viewModel.clearAll;
+
+		$(function(){
+			ko.applyBindings(viewModel);	
+		});
+	</script>
+</head>
+<body>
+	<h1>Simple Example</h1>
+
+	<h2>Simple Overview</h1>
+	<p>
+		My trolley contains <span data-bind='text: products.quantity()'></span>
+		products that cost <span data-bind='text: products.price()'></span> euro.
+		<input type="button" data-bind="click: clearAll" value="Clear Trolley">
+	</p>
+
+	<h2>Less Simple Overview</h2>
+	<table>
+
+		<thead>
+			<tr>
+				<th>Product name</th>
+				<th>Price</th>
+				<th>Quantity</th>
+				<th>Total price</th>
+				<th>Actions</th>
+			</tr>
+		</thead>
+
+		<tbody data-bind='template: "ProductRow"'></tbody>
+
+		<tfoot>
+			<tr>
+				<td colspan='2'>&nbsp;</td>
+				<th>Total price</th>
+				<td>
+					&euro;
+					<span data-bind='text: products.price()'></span>
+				</td>
+				<td>&nbsp;</td>
+			</tr>
+		</tfoot>
+	</table>
+
+	{% raw %}
+	<script type='text/x-jquery-tmpl' id='ProductRow'>
+		{{each(i, product) products}}
+		<tr>
+			<td>
+				${product.name}
+			</td>
+			<td>
+				${product.price}
+			</td>
+			<td>
+				<input type="text" name="quantity" data-bind='value: product.quantity'/>
+			</td>
+			<td>
+				${product.totalPrice}
+			</td>
+			<td>
+				<input type="button" data-bind="click: function(){ addProduct( product ) }" value="+"/>
+				<input type="button" data-bind="click: function(){ removeProduct( product ) }" value="-"/>
+				<input type="button" data-bind="click: function(){ removeProduct( product, true ) }" value="x"/>
+			</td>
+		</tr>
+		{{/each}}
+	</script>
+	{% endraw %}
+
+	<h2>Simple Product List</h2>
+	<ul>
+		<li>
+			<h2>Green snowboard pants</h2>
+			<p>
+				In in pellentesque ac ultrices et, vut et quis lorem vel, 
+				penatibus, ac mattis elit cursus ac.
+		  	</p> 
+			<p>
+				<span class='price'>99.99</span> euro.
+			</p>
+			<input type='button' data-bind='click: function(){
+				addProduct("Green snowboard pants", 99.99)
+			}' value='Add to cart'>
+		</li>
+
+		<li>
+			<h2>Leather snowboard pants</h2>
+			<p>
+				Mattis nascetur ut ut! Hac cursus est habitasse, quis, 
+				amet nisi eu tristique nunc! Nunc ut sociis integer! Integer mid.
+			</p>
+			<p>
+				<span class='price'>13.11</span> euro.
+			</p>
+			<input type='button' data-bind='click: function(){
+				addProduct("Leather snowboard pants", 13.11)
+			}' value='Add to cart'>
+		</li>
+
+		<li>
+			<h2>Purple snowboard pants</h2>
+			<p>
+				Parturient augue velit elit! Nec cursus, cum parturient? 
+				Vut sociis pellentesque eros!
+			</p>
+			<p>
+				<span class='price'>8.33</span> euro.
+			</p>
+			<input type='button' data-bind='click: function(){
+				addProduct("Purple snowboard pants", 8.3)
+			}' value='Add to cart'>
+		</li>
+	</ul>
+
+
+</body>
+</html>

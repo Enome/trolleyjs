@@ -1,4 +1,4 @@
-// Knockout JavaScript library v1.1.1
+// Knockout JavaScript library v1.1.2
 // (c) 2010 Steven Sanderson - http://knockoutjs.com/
 // License: Ms-Pl (http://www.opensource.org/licenses/ms-pl.html)
 
@@ -17,6 +17,7 @@ ko.exportProperty = function(owner, publicName, object) {
 ko.utils = new (function () {
     var stringTrimRegex = /^(\s|\u00A0)+|(\s|\u00A0)+$/g;
     var isIe6 = /MSIE 6/i.test(navigator.userAgent);
+    var isIe7 = /MSIE 7/i.test(navigator.userAgent);
     
     return {
         fieldsIncludedWithJsonPost: ['authenticity_token', /^__RequestVerificationToken(_.*)?$/],
@@ -253,6 +254,7 @@ ko.utils = new (function () {
         },
         
         isIe6 : isIe6,
+        isIe7 : isIe7,
         
         getFormFields: function(form, fieldName) {
             var fields = ko.utils.makeArray(form.getElementsByTagName("INPUT")).concat(ko.utils.makeArray(form.getElementsByTagName("TEXTAREA")));
@@ -532,16 +534,16 @@ ko.observable = function (initialValue) {
 
     function observable() {
         if (arguments.length > 0) {
-        	// Write
+            // Write
             _latestValue = arguments[0];
             observable.notifySubscribers(_latestValue);
             return this; // Permits chained assignments
         }
         else {
-        	// Read
+            // Read
             ko.dependencyDetection.registerDependency(observable); // The caller only needs to be notified of changes if they did a "read" operation
-        	return _latestValue;
-    	}
+            return _latestValue;
+        }
     }
     observable.__ko_proto__ = ko.observable;
     observable.valueHasMutated = function () { observable.notifySubscribers(_latestValue); }
@@ -558,7 +560,14 @@ ko.isObservable = function (instance) {
     return ko.isObservable(instance.__ko_proto__); // Walk the prototype chain
 }
 ko.isWriteableObservable = function (instance) {
-    return (typeof instance == "function") && instance.__ko_proto__ === ko.observable;
+    // Observable
+    if ((typeof instance == "function") && instance.__ko_proto__ === ko.observable)
+        return true;
+    // Writeable dependent observable
+    if ((typeof instance == "function") && (instance.__ko_proto__ === ko.dependentObservable) && (instance.hasWriteFunction))
+        return true;
+    // Anything else
+    return false;
 }
 
 
@@ -652,8 +661,19 @@ ko.observableArray = function (initialValues) {
 
 ko.exportSymbol('ko.observableArray', ko.observableArray);
 
-ko.dependentObservable = function (evaluatorFunction, evaluatorFunctionTarget, options) {
-    if (typeof evaluatorFunction != "function")
+ko.dependentObservable = function (evaluatorFunctionOrOptions, evaluatorFunctionTarget, options) {
+    if (evaluatorFunctionOrOptions && typeof evaluatorFunctionOrOptions == "object") {
+        // Single-parameter syntax - everything is on this "options" param
+        options = evaluatorFunctionOrOptions;
+    } else {
+        // Multi-parameter syntax - construct the options according to the params passed
+        options = options || {};
+        options["read"] = evaluatorFunctionOrOptions || options["read"];
+        options["owner"] = evaluatorFunctionTarget || options["owner"];
+    }
+    // By here, "options" is always non-null
+    
+    if (typeof options["read"] != "function")
         throw "Pass a function that returns the value of the dependentObservable";
 
     var _subscriptionsToDependencies = [];
@@ -671,9 +691,12 @@ ko.dependentObservable = function (evaluatorFunction, evaluatorFunctionTarget, o
         });
     };
 
-    var _latestValue, _isFirstEvaluation = true;
+    var _latestValue, _hasBeenEvaluated = false;
     function evaluate() {
-        if ((!_isFirstEvaluation) && options && typeof options["disposeWhen"] == "function") {
+        // Don't dispose on first evaluation, because the "disposeWhen" callback might
+        // e.g., dispose when the associated DOM element isn't in the doc, and it's not
+        // going to be in the doc until *after* the first evaluation
+        if ((_hasBeenEvaluated) && typeof options["disposeWhen"] == "function") {
             if (options["disposeWhen"]()) {
                 dependentObservable.dispose();
                 return;
@@ -682,31 +705,43 @@ ko.dependentObservable = function (evaluatorFunction, evaluatorFunctionTarget, o
 
         try {
             ko.dependencyDetection.begin();
-            _latestValue = evaluatorFunctionTarget ? evaluatorFunction.call(evaluatorFunctionTarget) : evaluatorFunction();
+            _latestValue = options["owner"] ? options["read"].call(options["owner"]) : options["read"]();
         } finally {
             var distinctDependencies = ko.utils.arrayGetDistinctValues(ko.dependencyDetection.end());
             replaceSubscriptionsToDependencies(distinctDependencies);
         }
 
         dependentObservable.notifySubscribers(_latestValue);
-        _isFirstEvaluation = false;
+        _hasBeenEvaluated = true;
     }
 
     function dependentObservable() {
-        if (arguments.length > 0)
-            throw "Cannot write a value to a dependentObservable. Do not pass any parameters to it";
-
-        ko.dependencyDetection.registerDependency(dependentObservable);
-        return _latestValue;
+        if (arguments.length > 0) {
+            if (typeof options["write"] === "function") {
+                // Writing a value
+                var valueToWrite = arguments[0];
+                options["owner"] ? options["write"].call(options["owner"], valueToWrite) : options["write"](valueToWrite);
+            } else {
+                throw "Cannot write a value to a dependentObservable unless you specify a 'write' option. If you wish to read the current value, don't pass any parameters.";
+            }
+        } else {
+            // Reading the value
+            if (!_hasBeenEvaluated)
+                evaluate();
+            ko.dependencyDetection.registerDependency(dependentObservable);
+            return _latestValue;
+        }
     }
     dependentObservable.__ko_proto__ = ko.dependentObservable;
     dependentObservable.getDependenciesCount = function () { return _subscriptionsToDependencies.length; }
+    dependentObservable.hasWriteFunction = typeof options["write"] === "function";
     dependentObservable.dispose = function () {
         disposeAllSubscriptionsToDependencies();
     };
 
     ko.subscribable.call(dependentObservable);
-    evaluate();
+    if (options['deferEvaluation'] !== true)
+        evaluate();
     
     ko.exportProperty(dependentObservable, 'dispose', dependentObservable.dispose);
     ko.exportProperty(dependentObservable, 'getDependenciesCount', dependentObservable.getDependenciesCount);
@@ -809,10 +844,9 @@ ko.exportSymbol('ko.toJSON', ko.toJSON);(function () {
     ko.selectExtensions = {
         readValue : function(element) {
             if (element.tagName == 'OPTION') {
-                var valueAttributeValue = element.getAttribute("value");
-                if (valueAttributeValue !== ko.bindingHandlers.options.optionValueDomDataKey)
-                    return valueAttributeValue;
-                return ko.utils.domData.get(element, ko.bindingHandlers.options.optionValueDomDataKey);
+                if (element['__ko__hasDomDataOptionValue__'] === true)
+                    return ko.utils.domData.get(element, ko.bindingHandlers.options.optionValueDomDataKey);
+                return element.getAttribute("value");
             } else if (element.tagName == 'SELECT')
                 return element.selectedIndex >= 0 ? ko.selectExtensions.readValue(element.options[element.selectedIndex]) : undefined;
             else
@@ -820,9 +854,23 @@ ko.exportSymbol('ko.toJSON', ko.toJSON);(function () {
         },
         
         writeValue: function(element, value) {
-            if (element.tagName == 'OPTION') {				
-                ko.utils.domData.set(element, ko.bindingHandlers.options.optionValueDomDataKey, value);
-                element.value = ko.bindingHandlers.options.optionValueDomDataKey;
+            if (element.tagName == 'OPTION') {
+                switch(typeof value) {
+                    case "string":
+                    case "number":
+                        ko.utils.domData.cleanNode(element);
+                        if ('__ko__hasDomDataOptionValue__' in element) { // IE <= 8 throws errors if you delete non-existent properties from a DOM node
+                            delete element['__ko__hasDomDataOptionValue__'];
+                        }
+                        element.value = value;                                   
+                        break;
+                    default:
+                        // Store arbitrary object using DomData
+                        ko.utils.domData.set(element, ko.bindingHandlers.options.optionValueDomDataKey, value);
+                        element['__ko__hasDomDataOptionValue__'] = true;
+                        element.value = "";
+                        break;
+                }			
             } else if (element.tagName == 'SELECT') {
                 for (var i = element.options.length - 1; i >= 0; i--) {
                     if (ko.selectExtensions.readValue(element.options[i]) == value) {
@@ -830,8 +878,11 @@ ko.exportSymbol('ko.toJSON', ko.toJSON);(function () {
                         break;
                     }
                 }
-            } else
+            } else {
+                if ((value === null) || (value === undefined))
+                    value = "";
                 element.value = value;
+            }
         }
     };        
 })();
@@ -842,7 +893,7 @@ ko.exportSymbol('ko.selectExtensions.writeValue', ko.selectExtensions.writeValue
 
 ko.jsonExpressionRewriting = (function () {
     var restoreCapturedTokensRegex = /\[ko_token_(\d+)\]/g;
-    var javaScriptAssignmentTarget = /^[\_$a-z][\_$a-z]*(\[.*?\])*(\.[\_$a-z][\_$a-z]*(\[.*?\])*)*$/i;
+    var javaScriptAssignmentTarget = /^[\_$a-z][\_$a-z0-9]*(\[.*?\])*(\.[\_$a-z][\_$a-z0-9]*(\[.*?\])*)*$/i;
     var javaScriptReservedWords = ["true", "false"];
 
     function restoreTokens(string, tokens) {
@@ -1111,7 +1162,15 @@ ko.bindingHandlers['value'] = {
     },
     'update': function (element, valueAccessor) {
         var newValue = ko.utils.unwrapObservable(valueAccessor());
-        if (newValue != ko.selectExtensions.readValue(element)) {
+        var elementValue = ko.selectExtensions.readValue(element);
+        var valueHasChanged = (newValue != elementValue);
+        
+        // JavaScript's 0 == "" behavious is unfortunate here as it prevents writing 0 to an empty text box (loose equality suggests the values are the same). 
+        // We don't want to do a strict equality comparison as that is more confusing for developers in certain cases, so we specifically special case 0 != "" here.
+        if ((newValue === 0) && (elementValue !== 0) && (elementValue !== "0"))
+            valueHasChanged = true;
+        
+        if (valueHasChanged) {
             var applyValueAction = function () { ko.selectExtensions.writeValue(element, newValue); };
             applyValueAction();
 
@@ -1121,6 +1180,14 @@ ko.bindingHandlers['value'] = {
             var alsoApplyAsynchronously = element.tagName == "SELECT";
             if (alsoApplyAsynchronously)
                 setTimeout(applyValueAction, 0);
+        }
+        
+        // For SELECT nodes, you're not allowed to have a model value that disagrees with the UI selection, so if there is a
+        // difference, treat it as a change that should be written back to the model
+        if (element.tagName == "SELECT") {
+            elementValue = ko.selectExtensions.readValue(element);
+            if(elementValue !== newValue)
+                ko.utils.triggerEvent(element, "change");
         }
     }
 };
@@ -1135,6 +1202,7 @@ ko.bindingHandlers['options'] = {
         }), function (node) {
             return ko.selectExtensions.readValue(node) || node.innerText || node.textContent;
         });
+        var previousScrollTop = element.scrollTop;
 
         var value = ko.utils.unwrapObservable(valueAccessor());
         var selectedValue = element.value;
@@ -1153,11 +1221,11 @@ ko.bindingHandlers['options'] = {
             for (var i = 0, j = value.length; i < j; i++) {
                 var option = document.createElement("OPTION");
                 var optionValue = typeof allBindings['optionsValue'] == "string" ? value[i][allBindings['optionsValue']] : value[i];
-                if (typeof optionValue == 'object')
-                    ko.selectExtensions.writeValue(option, optionValue);
-                else
-                    option.value = optionValue.toString();
-                option.innerHTML = (typeof allBindings['optionsText'] == "string" ? value[i][allBindings['optionsText']] : optionValue).toString();
+                var optionText = typeof allBindings['optionsText'] == "string" ? value[i][allBindings['optionsText']] : optionValue;
+                optionValue = ko.utils.unwrapObservable(optionValue);
+                optionText = ko.utils.unwrapObservable(optionText);
+                ko.selectExtensions.writeValue(option, optionValue);
+                option.innerHTML = optionText.toString();
                 element.appendChild(option);
             }
 
@@ -1171,6 +1239,9 @@ ko.bindingHandlers['options'] = {
                     countSelectionsRetained++;
                 }
             }
+            
+            if (previousScrollTop)
+                element.scrollTop = previousScrollTop;
         }
     }
 };
@@ -1218,6 +1289,8 @@ ko.bindingHandlers['selectedOptions'] = {
 ko.bindingHandlers['text'] = {
     'update': function (element, valueAccessor) {
         var value = ko.utils.unwrapObservable(valueAccessor());
+        if ((value === null) || (value === undefined))
+            value = "";
         typeof element.innerText == "string" ? element.innerText = value
                                              : element.textContent = value;
     }
@@ -1262,22 +1335,25 @@ ko.bindingHandlers['uniqueName'].currentIndex = 0;
 
 ko.bindingHandlers['checked'] = {
     'init': function (element, valueAccessor, allBindingsAccessor) {
-        var updateHandler = function() {
-            var value = valueAccessor();
-            if (ko.isWriteableObservable(value)) {
-                if (element.type == "checkbox") {
-                    value(element.checked);
-                } else if ((element.type == "radio") && (element.checked)) {
-                    value(element.value);
+        var updateHandler = function() {            
+            var valueToWrite;
+            if (element.type == "checkbox") {
+                valueToWrite = element.checked;
+            } else if ((element.type == "radio") && (element.checked)) {
+                valueToWrite = element.value;
+            } else {
+                return; // "checked" binding only responds to checkboxes and selected radio buttons
+            }
+            
+            var modelValue = valueAccessor();            
+            if (ko.isWriteableObservable(modelValue)) {            	
+                if (modelValue() !== valueToWrite) { // Suppress repeated events when there's nothing new to notify (some browsers raise them)
+                    modelValue(valueToWrite);
                 }
             } else {
                 var allBindings = allBindingsAccessor();
                 if (allBindings['_ko_property_writers'] && allBindings['_ko_property_writers']['checked']) {
-                    if (element.type == "checkbox") {
-                        allBindings['_ko_property_writers']['checked'](element.checked);
-                    } else if ((element.type == "radio") && (element.checked)) {
-                        allBindings['_ko_property_writers']['checked'](element.value);
-                    }
+                    allBindings['_ko_property_writers']['checked'](valueToWrite);
                 }
             }
         };
@@ -1300,9 +1376,9 @@ ko.bindingHandlers['checked'] = {
         } else if (element.type == "radio") {
             element.checked = (element.value == value);
             
-            // Workaround for IE 6 bug - it fails to apply checked state to dynamically-created radio buttons if you merely say "element.checked = true"
-            if ((element.value == value) && ko.utils.isIe6) 
-                element.mergeAttributes(document.createElement("<INPUT type='radio' checked='checked' />"), false);            
+            // Workaround for IE 6/7 bug - it fails to apply checked state to dynamically-created radio buttons if you merely say "element.checked = true"
+            if ((element.value == value) && (ko.utils.isIe6 || ko.utils.isIe7))
+                element.mergeAttributes(document.createElement("<INPUT type='radio' checked='checked' />"), false);
         }
     }
 };
@@ -1324,7 +1400,7 @@ ko.templateEngine = function () {
 ko.exportSymbol('ko.templateEngine', ko.templateEngine);
 
 ko.templateRewriting = (function () {
-    var memoizeBindingAttributeSyntaxRegex = /(<[a-z]+(\s+(?!data-bind=)[a-z0-9]+(=(\"[^\"]*\"|\'[^\']*\'))?)*\s+)data-bind=(["'])([\s\S]*?)\5/g;
+    var memoizeBindingAttributeSyntaxRegex = /(<[a-z]+\d*(\s+(?!data-bind=)[a-z0-9]+(=(\"[^\"]*\"|\'[^\']*\'))?)*\s+)data-bind=(["'])([\s\S]*?)\5/g;
 
     return {
         ensureTemplateIsRewritten: function (template, templateEngine) {
@@ -1400,6 +1476,9 @@ ko.exportSymbol('ko.templateRewriting.applyMemoizedBindingsToNextSibling', ko.te
             default: throw new Error("Unknown renderMode: " + renderMode);
         }
 
+        if (options['afterRender'])
+            options['afterRender'](renderedNodesArray, data);
+
         return renderedNodesArray;
     }
 
@@ -1457,12 +1536,12 @@ ko.exportSymbol('ko.templateRewriting.applyMemoizedBindingsToNextSibling', ko.te
 
             if (typeof bindingValue['foreach'] != "undefined") {
                 // Render once for each data point
-                ko.renderTemplateForEach(templateName, bindingValue['foreach'] || [], { 'afterAdd': bindingValue['afterAdd'], 'beforeRemove': bindingValue['beforeRemove'], 'includeDestroyed': bindingValue['includeDestroyed'] }, element);
+                ko.renderTemplateForEach(templateName, bindingValue['foreach'] || [], { 'afterAdd': bindingValue['afterAdd'], 'beforeRemove': bindingValue['beforeRemove'], 'includeDestroyed': bindingValue['includeDestroyed'], 'afterRender': bindingValue['afterRender'] }, element);
             }
             else {
                 // Render once for this single data point (or use the viewModel if no data was provided)
                 var templateData = bindingValue['data'];
-                ko.renderTemplate(templateName, typeof templateData == "undefined" ? viewModel : templateData, null, element);
+                ko.renderTemplate(templateName, typeof templateData == "undefined" ? viewModel : templateData, { 'afterRender': bindingValue['afterRender'] }, element);
             }
         }
     };
